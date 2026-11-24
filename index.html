@@ -260,6 +260,9 @@
       <button class="btn btn-success" onclick="exportUnifiedCSV()" title="Exportar todo a un solo CSV">
         <span>📤</span><span class="btn-lbl">Exportar CSV</span>
       </button>
+      <button class="btn btn-danger" onclick="openClearModal()" title="Borrar registros">
+        <span>🗑️</span><span class="btn-lbl">Limpiar</span>
+      </button>
     </div>
   </header>
 
@@ -387,21 +390,53 @@ function dbDelete(store, id) {
   });
 }
 
-// Importación masiva en una sola transacción por categoría
-function dbBulkImport(grouped, replaceAll) {
+function dbClearStores(stores) {
   return new Promise((res, rej) => {
-    const tx = DB.transaction(STORES, 'readwrite');
+    const tx = DB.transaction(stores, 'readwrite');
     tx.oncomplete = () => res();
     tx.onerror = () => rej(tx.error);
-    STORES.forEach(store => {
-      const os = tx.objectStore(store);
-      if (replaceAll) os.clear();
-      const items = grouped[store];
-      for (let i = 0; i < items.length; i++) {
-        os.put(items[i]);
-      }
-    });
+    stores.forEach(s => tx.objectStore(s).clear());
   });
+}
+
+function dbDeleteMany(store, ids) {
+  return new Promise((res, rej) => {
+    const tx = DB.transaction(store, 'readwrite');
+    const os = tx.objectStore(store);
+    tx.oncomplete = () => res();
+    tx.onerror = () => rej(tx.error);
+    for (let i = 0; i < ids.length; i++) os.delete(ids[i]);
+  });
+}
+
+// Importación masiva por lotes (chunks) para no congelar el navegador con 40k+ registros
+async function dbBulkImport(grouped, replaceAll, onProgress) {
+  if (replaceAll) {
+    await dbClearStores(STORES);
+  }
+  const total = grouped.inventario.length + grouped.compras.length + grouped.ventas.length;
+  let done = 0;
+  const CHUNK = 2500;
+
+  for (const store of STORES) {
+    const items = grouped[store];
+    for (let start = 0; start < items.length; start += CHUNK) {
+      const end = Math.min(start + CHUNK, items.length);
+      await new Promise((res, rej) => {
+        const tx = DB.transaction(store, 'readwrite');
+        const os = tx.objectStore(store);
+        tx.oncomplete = () => res();
+        tx.onerror = () => rej(tx.error);
+        for (let i = start; i < end; i++) {
+          os.put(items[i]);
+        }
+      });
+      done += (end - start);
+      if (onProgress) onProgress(done, total);
+      // Ceder el hilo principal para mantener la UI fluida
+      await new Promise(r => setTimeout(r, 0));
+    }
+  }
 }
 
 // ══════════════════════════════════════════════════════
@@ -594,11 +629,14 @@ function renderModShell(mod) {
       </div>
       <div class="meta-bar">
         <span class="count" id="mod-count">0 registro(s)</span>
-        ${isInv ? `
-          <div class="filter-pills">
-            <span class="pill ${!onlyLowStock ? 'active' : ''}" onclick="setLowFilter(false)">Todos</span>
-            <span class="pill ${onlyLowStock ? 'active' : ''}" onclick="setLowFilter(true)">⚠️ Stock bajo</span>
-          </div>` : ''}
+        <div style="display:flex;gap:.4rem;align-items:center;flex-wrap:wrap">
+          ${isInv ? `
+            <div class="filter-pills">
+              <span class="pill ${!onlyLowStock ? 'active' : ''}" onclick="setLowFilter(false)">Todos</span>
+              <span class="pill ${onlyLowStock ? 'active' : ''}" onclick="setLowFilter(true)">⚠️ Stock bajo</span>
+            </div>` : ''}
+          <button class="btn btn-danger btn-sm" id="btn-del-mod" onclick="deleteCurrentModuleView('${mod}')">🗑️ Vaciar</button>
+        </div>
       </div>
     </div>
     <div class="v-head" style="grid-template-columns:${cfg.gridCols}">
@@ -1110,24 +1148,41 @@ function openUnifiedImport() {
 
 function handleCSVFile(file) {
   if (!file) return;
+  document.getElementById('csv-preview').innerHTML = `
+    <div class="preview-box" style="color:var(--text2)">
+      ⏳ Leyendo <strong>${escHtml(file.name)}</strong> (${(file.size / 1024).toFixed(1)} KB)...
+    </div>`;
+  document.getElementById('btn-imp').disabled = true;
+
   const reader = new FileReader();
   reader.onload = e => {
-    const raw = parseCSVFast(e.target.result);
-    const grouped = classifyImportedRows(raw);
-    pendingImport = grouped;
-    const total = grouped.inventario.length + grouped.compras.length + grouped.ventas.length;
+    setTimeout(() => {
+      const raw = parseCSVFast(e.target.result);
+      const grouped = classifyImportedRows(raw);
+      pendingImport = grouped;
+      const total = grouped.inventario.length + grouped.compras.length + grouped.ventas.length;
 
-    document.getElementById('csv-preview').innerHTML = `
-      <div class="preview-box">
-        <strong>📄 ${escHtml(file.name)}</strong> · <span style="color:var(--text2)">${(file.size / 1024).toFixed(1)} KB</span>
-        <div class="preview-pills">
-          <span class="p-pill" style="color:var(--inventario)">📦 ${grouped.inventario.length.toLocaleString('es')} Inventario</span>
-          <span class="p-pill" style="color:var(--compras)">🛒 ${grouped.compras.length.toLocaleString('es')} Compras</span>
-          <span class="p-pill" style="color:var(--ventas)">💰 ${grouped.ventas.length.toLocaleString('es')} Ventas</span>
-        </div>
-      </div>`;
-    document.getElementById('btn-imp').disabled = total === 0;
-    document.getElementById('dz').style.borderColor = total > 0 ? 'var(--success)' : 'var(--danger)';
+      document.getElementById('csv-preview').innerHTML = `
+        <div class="preview-box">
+          <strong>📄 ${escHtml(file.name)}</strong> · <span style="color:var(--text2)">${(file.size / 1024).toFixed(1)} KB</span>
+          <div class="preview-pills">
+            <span class="p-pill" style="color:var(--inventario)">📦 ${grouped.inventario.length.toLocaleString('es')} Inventario</span>
+            <span class="p-pill" style="color:var(--compras)">🛒 ${grouped.compras.length.toLocaleString('es')} Compras</span>
+            <span class="p-pill" style="color:var(--ventas)">💰 ${grouped.ventas.length.toLocaleString('es')} Ventas</span>
+          </div>
+          <div id="imp-progress" style="display:none;margin-top:.7rem">
+            <div style="display:flex;justify-content:space-between;font-size:.74rem;color:var(--text2);margin-bottom:.3rem">
+              <span id="imp-prog-txt">Importando...</span>
+              <span id="imp-prog-pct">0%</span>
+            </div>
+            <div style="height:7px;background:var(--bg3);border-radius:999px;overflow:hidden">
+              <div id="imp-prog-bar" style="height:100%;width:0%;background:var(--success);transition:width .1s"></div>
+            </div>
+          </div>
+        </div>`;
+      document.getElementById('btn-imp').disabled = total === 0;
+      document.getElementById('dz').style.borderColor = total > 0 ? 'var(--success)' : 'var(--danger)';
+    }, 20);
   };
   reader.readAsText(file, 'UTF-8');
 }
@@ -1139,8 +1194,19 @@ async function doUnifiedImport() {
   btn.disabled = true;
   btn.textContent = 'Importando...';
 
+  const progWrap = document.getElementById('imp-progress');
+  const progTxt = document.getElementById('imp-prog-txt');
+  const progPct = document.getElementById('imp-prog-pct');
+  const progBar = document.getElementById('imp-prog-bar');
+  if (progWrap) progWrap.style.display = 'block';
+
   try {
-    await dbBulkImport(pendingImport, replaceAll);
+    await dbBulkImport(pendingImport, replaceAll, (done, total) => {
+      const pct = total ? Math.round((done / total) * 100) : 100;
+      if (progTxt) progTxt.textContent = `${done.toLocaleString('es')} / ${total.toLocaleString('es')} registros`;
+      if (progPct) progPct.textContent = `${pct}%`;
+      if (progBar) progBar.style.width = `${pct}%`;
+    });
     await loadAllIntoMemory();
     const total = pendingImport.inventario.length + pendingImport.compras.length + pendingImport.ventas.length;
     toast(`✅ ${total.toLocaleString('es')} registros importados`, 'ok');
@@ -1152,6 +1218,77 @@ async function doUnifiedImport() {
     toast('Error al importar: ' + e.message, 'err');
     btn.disabled = false;
     btn.textContent = '📥 Importar Todo';
+  }
+}
+
+// ══════════════════════════════════════════════════════
+//  BORRADO MASIVO INSTANTÁNEO
+// ══════════════════════════════════════════════════════
+function openClearModal() {
+  const total = MEM.inventario.length + MEM.compras.length + MEM.ventas.length;
+  document.getElementById('modal-title').textContent = '🗑️ Borrar registros';
+  document.getElementById('modal-body').innerHTML = `
+    <p style="font-size:.82rem;color:var(--text2);line-height:1.45">
+      Elige qué registros quieres vaciar. Esta acción es instantánea incluso con miles de datos y <strong>no se puede deshacer</strong>.
+    </p>
+    <div style="display:flex;flex-direction:column;gap:.55rem">
+      <button class="btn btn-ghost" style="justify-content:space-between" onclick="clearCategory('inventario')" ${!MEM.inventario.length ? 'disabled' : ''}>
+        <span>📦 Vaciar Inventario</span>
+        <span class="badge badge-low">${MEM.inventario.length.toLocaleString('es')}</span>
+      </button>
+      <button class="btn btn-ghost" style="justify-content:space-between" onclick="clearCategory('compras')" ${!MEM.compras.length ? 'disabled' : ''}>
+        <span>🛒 Vaciar Compras</span>
+        <span class="badge badge-low">${MEM.compras.length.toLocaleString('es')}</span>
+      </button>
+      <button class="btn btn-ghost" style="justify-content:space-between" onclick="clearCategory('ventas')" ${!MEM.ventas.length ? 'disabled' : ''}>
+        <span>💰 Vaciar Ventas</span>
+        <span class="badge badge-low">${MEM.ventas.length.toLocaleString('es')}</span>
+      </button>
+    </div>
+    <hr style="border:none;border-top:1px solid var(--border);margin:.2rem 0">
+    <button class="btn btn-danger" style="width:100%;padding:.65rem" onclick="clearCategory('all')" ${!total ? 'disabled' : ''}>
+      🔥 Borrar TODO el sistema (${total.toLocaleString('es')} registros)
+    </button>`;
+  document.getElementById('modal-ft').innerHTML = `
+    <button class="btn btn-ghost" onclick="closeModal()">Cerrar</button>`;
+  openModal();
+}
+
+async function clearCategory(target) {
+  const label = target === 'all' ? 'TODO el sistema' : MODS[target].label;
+  if (!confirm(`¿Seguro que deseas borrar todos los registros de ${label}?`)) return;
+  try {
+    const stores = target === 'all' ? STORES : [target];
+    await dbClearStores(stores);
+    stores.forEach(s => { MEM[s] = []; });
+    updateNavBadges();
+    toast(`🗑️ ${label} vaciado`, 'ok');
+    closeModal();
+    if (currentTab === 'dashboard') renderDash();
+    else refreshVirtualData(currentTab);
+  } catch (e) {
+    toast('Error al vaciar: ' + e.message, 'err');
+  }
+}
+
+async function deleteCurrentModuleView(mod) {
+  const rows = getFilteredRows(mod);
+  if (!rows.length) { toast('No hay registros para borrar', 'inf'); return; }
+  const isFiltered = Boolean(searchQ.trim() || (mod === 'inventario' && onlyLowStock));
+  if (!isFiltered) {
+    return clearCategory(mod);
+  }
+  if (!confirm(`¿Borrar los ${rows.length.toLocaleString('es')} registros filtrados de ${MODS[mod].label}?`)) return;
+  try {
+    const ids = rows.map(r => r.id);
+    const idSet = new Set(ids);
+    await dbDeleteMany(mod, ids);
+    MEM[mod] = MEM[mod].filter(r => !idSet.has(r.id));
+    updateNavBadges();
+    toast(`🗑️ ${ids.length.toLocaleString('es')} registros borrados`, 'ok');
+    refreshVirtualData(mod);
+  } catch (e) {
+    toast('Error al borrar: ' + e.message, 'err');
   }
 }
 
