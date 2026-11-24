@@ -1,4 +1,4 @@
-const CACHE = 'sistema-csv-v3';
+const CACHE = 'sistema-csv-v4';
 const ASSETS = ['./', './index.html', './manifest.json', './icon-192.png', './icon-512.png'];
 
 self.addEventListener('install', e => {
