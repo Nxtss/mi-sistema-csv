@@ -1,0 +1,671 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,viewport-fit=cover"/>
+  <title>Mi Sistema CSV</title>
+  <link rel="manifest" href="manifest.json"/>
+  <meta name="theme-color" content="#3b82f6"/>
+  <meta name="apple-mobile-web-app-capable" content="yes"/>
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"/>
+  <meta name="apple-mobile-web-app-title" content="SistemaCSV"/>
+  <link rel="apple-touch-icon" href="icon-192.png"/>
+  <style>
+    /* ══════════════ RESET & VARIABLES ══════════════ */
+    *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+    :root{
+      --bg:#0f172a;--bg2:#1e293b;--bg3:#334155;
+      --text:#f1f5f9;--text2:#94a3b8;
+      --primary:#3b82f6;--primary-h:#2563eb;
+      --success:#22c55e;--danger:#ef4444;--warning:#f59e0b;
+      --compras:#8b5cf6;--ventas:#22c55e;--inventario:#f59e0b;
+      --radius:10px;--shadow:0 4px 24px rgba(0,0,0,.35);--tr:.18s ease;
+    }
+    html,body{height:100%;font-family:'Segoe UI',system-ui,sans-serif;background:var(--bg);color:var(--text);overscroll-behavior:none;}
+
+    /* ══════════════ LAYOUT ══════════════ */
+    .shell{display:flex;flex-direction:column;height:100dvh;}
+    .topbar{
+      background:var(--bg2);border-bottom:1px solid var(--bg3);
+      padding:.7rem 1.1rem;display:flex;align-items:center;gap:.75rem;
+      position:sticky;top:0;z-index:100;padding-top:max(.7rem,env(safe-area-inset-top));
+    }
+    .topbar h1{font-size:1.05rem;font-weight:700;color:var(--primary);flex:1}
+    .nav{
+      background:var(--bg2);display:flex;border-bottom:1px solid var(--bg3);
+      overflow-x:auto;scrollbar-width:none;
+    }
+    .nav::-webkit-scrollbar{display:none}
+    .tab{
+      padding:.7rem 1.1rem;cursor:pointer;white-space:nowrap;
+      border-bottom:3px solid transparent;color:var(--text2);
+      transition:var(--tr);font-size:.88rem;font-weight:500;
+      display:flex;align-items:center;gap:.35rem;flex-shrink:0;
+    }
+    .tab:hover{color:var(--text)}
+    .tab.active{color:var(--text);border-bottom-color:var(--primary)}
+    .tab.compras.active{border-bottom-color:var(--compras);color:var(--compras)}
+    .tab.ventas.active{border-bottom-color:var(--ventas);color:var(--ventas)}
+    .tab.inventario.active{border-bottom-color:var(--inventario);color:var(--inventario)}
+    .main{flex:1;overflow-y:auto;padding:1rem;-webkit-overflow-scrolling:touch;}
+
+    /* ══════════════ DASHBOARD ══════════════ */
+    .dash-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:.85rem;margin-bottom:1.25rem}
+    .stat{background:var(--bg2);border-radius:var(--radius);padding:1.1rem;border:1px solid var(--bg3);position:relative;overflow:hidden}
+    .stat::before{content:'';position:absolute;top:0;left:0;right:0;height:3px}
+    .stat.compras::before{background:var(--compras)}
+    .stat.ventas::before{background:var(--ventas)}
+    .stat.inventario::before{background:var(--inventario)}
+    .stat.alertas::before{background:var(--danger)}
+    .stat-label{font-size:.7rem;color:var(--text2);text-transform:uppercase;letter-spacing:.05em}
+    .stat-value{font-size:1.7rem;font-weight:800;margin:.2rem 0}
+    .stat-sub{font-size:.75rem;color:var(--text2)}
+    .alert-box{background:var(--bg2);border-radius:var(--radius);padding:.9rem;border:1px solid var(--warning);margin-bottom:1rem}
+    .alert-box h3{color:var(--warning);margin-bottom:.4rem;font-size:.85rem}
+    .alert-item{font-size:.8rem;padding:.25rem 0;border-bottom:1px solid var(--bg3);color:var(--text2)}
+    .alert-item:last-child{border-bottom:none}
+
+    /* ══════════════ TOOLBAR ══════════════ */
+    .toolbar{display:flex;flex-wrap:wrap;gap:.5rem;margin-bottom:.85rem;align-items:center}
+    .search{
+      flex:1;min-width:140px;background:var(--bg2);border:1px solid var(--bg3);
+      border-radius:8px;padding:.5rem .8rem;color:var(--text);font-size:.85rem;outline:none;
+      transition:border-color var(--tr);
+    }
+    .search:focus{border-color:var(--primary)}
+    .btn{
+      padding:.5rem .9rem;border-radius:8px;border:none;cursor:pointer;
+      font-size:.82rem;font-weight:600;display:inline-flex;align-items:center;
+      gap:.35rem;transition:var(--tr);white-space:nowrap;-webkit-tap-highlight-color:transparent;
+    }
+    .btn-primary{background:var(--primary);color:#fff}.btn-primary:hover{background:var(--primary-h)}
+    .btn-success{background:var(--success);color:#fff}.btn-success:hover{background:#16a34a}
+    .btn-ghost{background:var(--bg3);color:var(--text)}.btn-ghost:hover{background:#475569}
+    .btn-danger{background:var(--danger);color:#fff}
+    .btn-sm{padding:.28rem .55rem;font-size:.75rem}
+
+    /* ══════════════ TABLA ══════════════ */
+    .tbl-wrap{overflow-x:auto;border-radius:var(--radius);border:1px solid var(--bg3);-webkit-overflow-scrolling:touch;}
+    table{width:100%;border-collapse:collapse;min-width:520px}
+    thead{background:var(--bg3)}
+    th{padding:.65rem .8rem;text-align:left;font-size:.72rem;color:var(--text2);text-transform:uppercase;letter-spacing:.05em;white-space:nowrap}
+    td{padding:.6rem .8rem;font-size:.82rem;border-bottom:1px solid var(--bg3);vertical-align:middle}
+    tbody tr:last-child td{border-bottom:none}
+    tbody tr:hover{background:rgba(255,255,255,.025)}
+    .badge{display:inline-block;padding:.15rem .5rem;border-radius:999px;font-size:.68rem;font-weight:700}
+    .badge-low{background:rgba(239,68,68,.15);color:var(--danger)}
+    .badge-ok{background:rgba(34,197,94,.15);color:var(--success)}
+    .empty{text-align:center;padding:2.5rem;color:var(--text2)}
+    .empty .ico{font-size:2.5rem;margin-bottom:.6rem}
+    .count{color:var(--text2);font-size:.78rem;margin-bottom:.65rem}
+
+    /* ══════════════ MODAL ══════════════ */
+    .overlay{
+      position:fixed;inset:0;background:rgba(0,0,0,.65);z-index:200;
+      display:flex;align-items:flex-end;justify-content:center;
+      padding:0;opacity:0;pointer-events:none;transition:opacity var(--tr);
+    }
+    @media(min-width:600px){.overlay{align-items:center;padding:1rem}}
+    .overlay.open{opacity:1;pointer-events:all}
+    .modal{
+      background:var(--bg2);border-radius:16px 16px 0 0;border:1px solid var(--bg3);
+      width:100%;max-width:520px;max-height:92dvh;overflow-y:auto;
+      box-shadow:var(--shadow);transform:translateY(30px);transition:transform var(--tr);
+      padding-bottom:env(safe-area-inset-bottom);
+    }
+    @media(min-width:600px){.modal{border-radius:14px;max-height:88dvh}}
+    .overlay.open .modal{transform:translateY(0)}
+    .modal-hd{padding:1.1rem 1.3rem;border-bottom:1px solid var(--bg3);display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;background:var(--bg2);z-index:1}
+    .modal-hd h2{font-size:.95rem}
+    .modal-x{background:none;border:none;color:var(--text2);cursor:pointer;font-size:1.3rem;line-height:1;padding:.2rem}
+    .modal-body{padding:1.1rem 1.3rem;display:flex;flex-direction:column;gap:.85rem}
+    .modal-ft{padding:.9rem 1.3rem;border-top:1px solid var(--bg3);display:flex;gap:.6rem;justify-content:flex-end;position:sticky;bottom:0;background:var(--bg2)}
+
+    .fg{display:flex;flex-direction:column;gap:.28rem}
+    .fg label{font-size:.77rem;color:var(--text2);font-weight:600}
+    .fg input,.fg select,.fg textarea{
+      background:var(--bg3);border:1px solid #475569;border-radius:7px;
+      padding:.55rem .8rem;color:var(--text);font-size:.85rem;outline:none;
+      transition:border-color var(--tr);width:100%;font-family:inherit;
+    }
+    .fg input:focus,.fg select:focus,.fg textarea:focus{border-color:var(--primary)}
+    .fg textarea{resize:vertical;min-height:60px}
+    .req{color:var(--danger)}
+
+    /* ══════════════ TOAST ══════════════ */
+    #toasts{position:fixed;bottom:1.2rem;right:1.2rem;z-index:999;display:flex;flex-direction:column;gap:.4rem;pointer-events:none}
+    .toast{
+      background:var(--bg2);border:1px solid var(--bg3);border-radius:10px;
+      padding:.65rem 1rem;font-size:.82rem;min-width:200px;
+      box-shadow:var(--shadow);animation:slideIn .22s ease;
+    }
+    .toast.ok{border-left:4px solid var(--success)}
+    .toast.err{border-left:4px solid var(--danger)}
+    .toast.inf{border-left:4px solid var(--primary)}
+    @keyframes slideIn{from{transform:translateX(50px);opacity:0}to{transform:translateX(0);opacity:1}}
+
+    /* ══════════════ DROP ZONE ══════════════ */
+    .dz{
+      border:2px dashed var(--bg3);border-radius:10px;padding:1.6rem;
+      text-align:center;cursor:pointer;transition:var(--tr);color:var(--text2);
+    }
+    .dz:hover,.dz.over{border-color:var(--primary);background:rgba(59,130,246,.05);color:var(--text)}
+    .dz .dico{font-size:1.8rem;margin-bottom:.4rem}
+
+    /* ══════════════ RESPONSIVE ══════════════ */
+    @media(max-width:420px){
+      .topbar h1{font-size:.95rem}
+      .main{padding:.7rem}
+      .dash-grid{grid-template-columns:1fr 1fr}
+    }
+  </style>
+</head>
+<body>
+<div class="shell">
+  <div class="topbar">
+    <h1>📊 Mi Sistema CSV</h1>
+    <span style="font-size:.7rem;color:var(--text2)" id="sync-info">Guardado local</span>
+  </div>
+  <nav class="nav">
+    <div class="tab active" data-tab="dashboard">🏠 Inicio</div>
+    <div class="tab compras"    data-tab="compras">🛒 Compras</div>
+    <div class="tab ventas"     data-tab="ventas">💰 Ventas</div>
+    <div class="tab inventario" data-tab="inventario">📦 Inventario</div>
+  </nav>
+  <main class="main" id="main"></main>
+</div>
+
+<div id="toasts"></div>
+
+<div class="overlay" id="overlay">
+  <div class="modal" id="modal">
+    <div class="modal-hd">
+      <h2 id="modal-title">Registro</h2>
+      <button class="modal-x" onclick="closeModal()">✕</button>
+    </div>
+    <div class="modal-body" id="modal-body"></div>
+    <div class="modal-ft" id="modal-ft"></div>
+  </div>
+</div>
+
+<script>
+// ══════════════════════════════════════════════════════
+//  CONFIGURACIÓN DE MÓDULOS
+// ══════════════════════════════════════════════════════
+const MODS = {
+  compras: {
+    label:'Compras', color:'#8b5cf6',
+    campos:[
+      {k:'fecha',         lb:'Fecha',           t:'date',   req:true},
+      {k:'proveedor',     lb:'Proveedor',        t:'text',   req:true},
+      {k:'producto',      lb:'Producto',         t:'text',   req:true},
+      {k:'cantidad',      lb:'Cantidad',         t:'number', req:true, step:'any', calc:true},
+      {k:'precio_unitario',lb:'Precio Unitario', t:'number', req:true, step:'0.01', calc:true},
+      {k:'total',         lb:'Total (auto)',     t:'number', ro:true,  step:'0.01'},
+      {k:'notas',         lb:'Notas',            t:'area'},
+    ],
+    cols:['id','fecha','proveedor','producto','cantidad','precio_unitario','total'],
+  },
+  ventas: {
+    label:'Ventas', color:'#22c55e',
+    campos:[
+      {k:'fecha',         lb:'Fecha',           t:'date',   req:true},
+      {k:'cliente',       lb:'Cliente',          t:'text',   req:true},
+      {k:'producto',      lb:'Producto',         t:'text',   req:true},
+      {k:'cantidad',      lb:'Cantidad',         t:'number', req:true, step:'any', calc:true},
+      {k:'precio_unitario',lb:'Precio Unitario', t:'number', req:true, step:'0.01', calc:true},
+      {k:'total',         lb:'Total (auto)',     t:'number', ro:true,  step:'0.01'},
+      {k:'notas',         lb:'Notas',            t:'area'},
+    ],
+    cols:['id','fecha','cliente','producto','cantidad','precio_unitario','total'],
+  },
+  inventario: {
+    label:'Inventario', color:'#f59e0b',
+    campos:[
+      {k:'codigo',       lb:'Código',        t:'text',   req:true},
+      {k:'producto',     lb:'Producto',      t:'text',   req:true},
+      {k:'categoria',    lb:'Categoría',     t:'text'},
+      {k:'stock_actual', lb:'Stock Actual',  t:'number', req:true, step:'any'},
+      {k:'stock_minimo', lb:'Stock Mínimo',  t:'number', step:'any'},
+      {k:'precio',       lb:'Precio',        t:'number', step:'0.01'},
+      {k:'notas',        lb:'Notas',         t:'area'},
+    ],
+    cols:['id','codigo','producto','categoria','stock_actual','stock_minimo','precio'],
+  },
+};
+
+// ══════════════════════════════════════════════════════
+//  INDEXEDDB — PERSISTENCIA LOCAL
+// ══════════════════════════════════════════════════════
+let DB;
+function openDB(){
+  return new Promise((res,rej)=>{
+    const req = indexedDB.open('SistemaCSV',1);
+    req.onupgradeneeded = e=>{
+      const db = e.target.result;
+      ['compras','ventas','inventario'].forEach(m=>{
+        if(!db.objectStoreNames.contains(m))
+          db.createObjectStore(m,{keyPath:'id',autoIncrement:true});
+      });
+    };
+    req.onsuccess = e=>{ DB=e.target.result; res(DB); };
+    req.onerror   = e=>rej(e.target.error);
+  });
+}
+function getAll(store){
+  return new Promise((res,rej)=>{
+    const tx=DB.transaction(store,'readonly');
+    const req=tx.objectStore(store).getAll();
+    req.onsuccess=()=>res(req.result);
+    req.onerror=()=>rej(req.error);
+  });
+}
+function putRecord(store,data){
+  return new Promise((res,rej)=>{
+    const tx=DB.transaction(store,'readwrite');
+    const req=tx.objectStore(store).put(data);
+    req.onsuccess=()=>res(req.result);
+    req.onerror=()=>rej(req.error);
+  });
+}
+function delRecord(store,id){
+  return new Promise((res,rej)=>{
+    const tx=DB.transaction(store,'readwrite');
+    const req=tx.objectStore(store).delete(id);
+    req.onsuccess=()=>res();
+    req.onerror=()=>rej(req.error);
+  });
+}
+function clearStore(store){
+  return new Promise((res,rej)=>{
+    const tx=DB.transaction(store,'readwrite');
+    const req=tx.objectStore(store).clear();
+    req.onsuccess=()=>res();
+    req.onerror=()=>rej(req.error);
+  });
+}
+
+// ══════════════════════════════════════════════════════
+//  ESTADO
+// ══════════════════════════════════════════════════════
+let currentTab='dashboard';
+let tabCache={compras:[],ventas:[],inventario:[]};
+let searchQ='';
+let editId=null;
+
+// ══════════════════════════════════════════════════════
+//  UTILIDADES
+// ══════════════════════════════════════════════════════
+function toast(msg,type='inf',dur=2800){
+  const el=document.createElement('div');
+  el.className=`toast ${type}`;
+  el.textContent=msg;
+  document.getElementById('toasts').appendChild(el);
+  setTimeout(()=>el.remove(),dur);
+}
+function fmt(v){return(v===''||v==null)?'—':v}
+function fmtM(v){const n=parseFloat(v);return isNaN(n)?'—':n.toLocaleString('es',{minimumFractionDigits:2,maximumFractionDigits:2})}
+function today(){return new Date().toISOString().split('T')[0]}
+
+function parseCSV(text){
+  const lines=text.replace(/\r\n/g,'\n').replace(/\r/g,'\n').split('\n').filter(Boolean);
+  if(lines.length<2)return[];
+  const headers=lines[0].split(',').map(h=>h.trim().replace(/^"|"$/g,'').toLowerCase().replace(/ /g,'_'));
+  return lines.slice(1).map(line=>{
+    // manejo básico de campos con comas entre comillas
+    const vals=[];let cur='';let inQ=false;
+    for(const c of line){
+      if(c==='"'){inQ=!inQ}
+      else if(c===','&&!inQ){vals.push(cur.trim());cur=''}
+      else cur+=c;
+    }
+    vals.push(cur.trim());
+    const obj={};
+    headers.forEach((h,i)=>{ obj[h]=(vals[i]||'').replace(/^"|"$/g,''); });
+    return obj;
+  });
+}
+
+function toCSV(rows,fields){
+  const esc=v=>{
+    const s=String(v??'');
+    return s.includes(',')||s.includes('"')||s.includes('\n')?`"${s.replace(/"/g,'""')}"`
+ :s;
+  };
+  const header=fields.join(',');
+  const body=rows.map(r=>fields.map(f=>esc(r[f]??'')).join(',')).join('\n');
+  return header+'\n'+body;
+}
+
+function downloadFile(content,filename,mime='text/csv;charset=utf-8;'){
+  const bom='\uFEFF'; // BOM para Excel
+  const blob=new Blob([bom+content],{type:mime});
+  const url=URL.createObjectURL(blob);
+  const a=document.createElement('a');
+  a.href=url;a.download=filename;a.click();
+  setTimeout(()=>URL.revokeObjectURL(url),1000);
+}
+
+function calcTotal(){
+  const q=document.getElementById('f_cantidad');
+  const p=document.getElementById('f_precio_unitario');
+  const t=document.getElementById('f_total');
+  if(q&&p&&t){
+    const v=parseFloat(q.value)*parseFloat(p.value);
+    t.value=isNaN(v)?'':v.toFixed(2);
+  }
+}
+
+// ══════════════════════════════════════════════════════
+//  MODAL
+// ══════════════════════════════════════════════════════
+function openModal(){
+  document.getElementById('overlay').classList.add('open');
+  document.addEventListener('keydown',escH);
+}
+function closeModal(){
+  document.getElementById('overlay').classList.remove('open');
+  document.removeEventListener('keydown',escH);
+  editId=null;
+}
+function escH(e){if(e.key==='Escape')closeModal()}
+document.getElementById('overlay').addEventListener('click',e=>{
+  if(e.target===e.currentTarget)closeModal();
+});
+
+// ══════════════════════════════════════════════════════
+//  RENDER: DASHBOARD
+// ══════════════════════════════════════════════════════
+async function renderDash(){
+  const main=document.getElementById('main');
+  const data={};
+  for(const m of ['compras','ventas','inventario']){
+    const rows=await getAll(m);
+    tabCache[m]=rows;
+    const total=rows.reduce((s,r)=>s+(parseFloat(r.total)||parseFloat(r.precio)||0),0);
+    data[m]={n:rows.length,total};
+  }
+  const alertas=tabCache.inventario.filter(r=>
+    r.stock_actual!==''&&r.stock_minimo!==''&&
+    parseFloat(r.stock_actual)<=parseFloat(r.stock_minimo)
+  );
+
+  const cards=['compras','ventas','inventario'].map(m=>`
+    <div class="stat ${m}">
+      <div class="stat-label">${MODS[m].label}</div>
+      <div class="stat-value" style="color:${MODS[m].color}">${data[m].n}</div>
+      <div class="stat-sub">Total $${fmtM(data[m].total)}</div>
+    </div>`).join('');
+
+  const alertBox=alertas.length?`
+    <div class="alert-box">
+      <h3>⚠️ Stock bajo (${alertas.length})</h3>
+      ${alertas.map(r=>`<div class="alert-item">• ${r.producto||r.codigo} — Stock: ${r.stock_actual}</div>`).join('')}
+    </div>`:'';
+
+  main.innerHTML=`
+    <div class="dash-grid">${cards}</div>
+    ${alertBox}
+    <div style="text-align:center;margin-top:1.2rem">
+      <button class="btn btn-ghost" onclick="renderDash()">🔄 Actualizar</button>
+    </div>
+    <div style="color:var(--text2);font-size:.72rem;text-align:center;margin-top:.75rem">
+      Datos guardados en este dispositivo · ${new Date().toLocaleTimeString('es')}
+    </div>`;
+}
+
+// ══════════════════════════════════════════════════════
+//  RENDER: MÓDULO
+// ══════════════════════════════════════════════════════
+async function renderMod(mod){
+  const cfg=MODS[mod];
+  let rows=await getAll(mod);
+  tabCache[mod]=rows;
+  if(searchQ){
+    const q=searchQ.toLowerCase();
+    rows=rows.filter(r=>Object.values(r).some(v=>String(v).toLowerCase().includes(q)));
+  }
+
+  const cols=cfg.cols;
+  const colHd=cols.map(c=>{
+    const f=cfg.campos.find(x=>x.k===c)||{lb:c};
+    return`<th>${f.lb}</th>`;
+  }).join('')+'<th></th>';
+
+  const filas=rows.length===0
+    ?`<tr><td colspan="${cols.length+1}"><div class="empty"><div class="ico">📭</div><p>Sin registros</p></div></td></tr>`
+    :rows.map(r=>{
+      const celdas=cols.map(c=>{
+        const v=r[c]??'';
+        if(['total','precio','precio_unitario'].includes(c)&&v!=='')return`<td>$${fmtM(v)}</td>`;
+        if(c==='stock_actual'&&mod==='inventario'){
+          const bajo=r.stock_minimo!==''&&parseFloat(r.stock_actual)<=parseFloat(r.stock_minimo);
+          return`<td>${fmt(v)} ${bajo
+            ?'<span class="badge badge-low">BAJO</span>'
+            :'<span class="badge badge-ok">OK</span>'}</td>`;
+        }
+        return`<td>${fmt(v)}</td>`;
+      }).join('');
+      return`<tr>${celdas}<td style="white-space:nowrap">
+        <button class="btn btn-ghost btn-sm" onclick="openEdit('${mod}',${r.id})">✏️</button>
+        <button class="btn btn-danger btn-sm" onclick="doDelete('${mod}',${r.id})">🗑️</button>
+      </td></tr>`;
+    }).join('');
+
+  document.getElementById('main').innerHTML=`
+    <div class="toolbar">
+      <input class="search" type="search" placeholder="🔍 Buscar..." value="${searchQ}"
+        oninput="searchQ=this.value;clearTimeout(window._t);window._t=setTimeout(()=>renderMod('${mod}'),300)">
+      <button class="btn btn-primary" onclick="openNew('${mod}')">➕ Nuevo</button>
+      <button class="btn btn-ghost"   onclick="openImport('${mod}')">📥 CSV</button>
+      <button class="btn btn-success" onclick="doExport('${mod}')">📤 Exportar</button>
+    </div>
+    <div class="count">${rows.length} registro(s)</div>
+    <div class="tbl-wrap">
+      <table><thead><tr>${colHd}</tr></thead><tbody>${filas}</tbody></table>
+    </div>`;
+}
+
+// ══════════════════════════════════════════════════════
+//  FORMULARIO
+// ══════════════════════════════════════════════════════
+function buildForm(mod,data={}){
+  return MODS[mod].campos.filter(f=>f.k!=='id').map(f=>{
+    const v=data[f.k]??'';
+    const ro=f.ro?'readonly style="opacity:.55"':'';
+    const ev=f.calc?`oninput="calcTotal()"`:''
+    if(f.t==='area') return`<div class="fg"><label>${f.lb}</label><textarea id="f_${f.k}" name="${f.k}">${v}</textarea></div>`;
+    return`<div class="fg">
+      <label for="f_${f.k}">${f.lb}${f.req?` <span class="req">*</span>`:''}</label>
+      <input id="f_${f.k}" name="${f.k}" type="${f.t}" value="${v}"
+        ${f.step?`step="${f.step}"`:''}
+        ${f.req?'required':''}
+        ${ro} ${ev}>
+    </div>`;
+  }).join('');
+}
+
+function openNew(mod){
+  editId=null;
+  document.getElementById('modal-title').textContent=`Nuevo — ${MODS[mod].label}`;
+  document.getElementById('modal-body').innerHTML=buildForm(mod);
+  document.getElementById('modal-ft').innerHTML=`
+    <button class="btn btn-ghost" onclick="closeModal()">Cancelar</button>
+    <button class="btn btn-primary" onclick="doSave('${mod}')">Guardar</button>`;
+  openModal();
+  const fd=document.getElementById('f_fecha');
+  if(fd&&!fd.value)fd.value=today();
+}
+
+async function openEdit(mod,id){
+  const rows=await getAll(mod);
+  const data=rows.find(r=>r.id===id);
+  if(!data){toast('No encontrado','err');return}
+  editId=id;
+  document.getElementById('modal-title').textContent=`Editar #${id} — ${MODS[mod].label}`;
+  document.getElementById('modal-body').innerHTML=buildForm(mod,data);
+  document.getElementById('modal-ft').innerHTML=`
+    <button class="btn btn-ghost" onclick="closeModal()">Cancelar</button>
+    <button class="btn btn-primary" onclick="doSave('${mod}')">Actualizar</button>`;
+  openModal();
+}
+
+async function doSave(mod){
+  const campos=MODS[mod].campos.filter(f=>f.k!=='id');
+  const data={};
+  for(const f of campos){
+    const el=document.getElementById(`f_${f.k}`);
+    if(!el)continue;
+    if(f.req&&!el.value.trim()){toast(`"${f.lb}" es obligatorio`,'err');el.focus();return}
+    data[f.k]=el.value;
+  }
+  // Auto calcular total
+  if(data.cantidad!==undefined&&data.precio_unitario!==undefined){
+    const t=parseFloat(data.cantidad)*parseFloat(data.precio_unitario);
+    if(!isNaN(t))data.total=t.toFixed(2);
+  }
+  if(editId!==null)data.id=editId;
+  try{
+    await putRecord(mod,data);
+    toast(editId!==null?'Actualizado ✅':'Guardado ✅','ok');
+    closeModal();
+    renderMod(mod);
+  }catch(e){toast('Error: '+e.message,'err')}
+}
+
+async function doDelete(mod,id){
+  if(!confirm(`¿Eliminar registro #${id}?`))return;
+  try{
+    await delRecord(mod,id);
+    toast('Eliminado','ok');
+    renderMod(mod);
+  }catch(e){toast('Error','err')}
+}
+
+// ══════════════════════════════════════════════════════
+//  EXPORTAR CSV
+// ══════════════════════════════════════════════════════
+async function doExport(mod){
+  const rows=await getAll(mod);
+  if(!rows.length){toast('Sin datos para exportar','inf');return}
+  const fields=MODS[mod].campos.map(f=>f.k).filter(k=>k!=='id');
+  fields.unshift('id');
+  const csv=toCSV(rows,fields);
+  const fecha=new Date().toISOString().slice(0,10);
+  downloadFile(csv,`${mod}_${fecha}.csv`);
+  toast(`${rows.length} registros exportados 📤`,'ok');
+}
+
+// ══════════════════════════════════════════════════════
+//  IMPORTAR CSV
+// ══════════════════════════════════════════════════════
+function openImport(mod){
+  document.getElementById('modal-title').textContent=`Importar CSV — ${MODS[mod].label}`;
+  document.getElementById('modal-body').innerHTML=`
+    <div class="dz" id="dz" onclick="document.getElementById('csv-in').click()">
+      <div class="dico">📁</div>
+      <p style="font-size:.88rem">Toca aquí para seleccionar archivo CSV</p>
+      <p style="font-size:.73rem;margin-top:.3rem;color:var(--text2)">Compatible con Excel (UTF-8 o Latin-1)</p>
+      <input type="file" id="csv-in" accept=".csv,.txt" style="display:none" onchange="previewCSV(this,'${mod}')">
+    </div>
+    <div id="csv-preview"></div>
+    <div class="fg" style="flex-direction:row;align-items:center;gap:.5rem">
+      <input type="checkbox" id="replace-chk" style="width:auto">
+      <label for="replace-chk" style="color:var(--text2);font-size:.82rem">Reemplazar todos los datos existentes</label>
+    </div>`;
+  document.getElementById('modal-ft').innerHTML=`
+    <button class="btn btn-ghost" onclick="closeModal()">Cancelar</button>
+    <button class="btn btn-success" id="btn-imp" onclick="doImport('${mod}')" disabled>📥 Importar</button>`;
+  openModal();
+
+  // drag & drop
+  const dz=document.getElementById('dz');
+  dz.addEventListener('dragover',e=>{e.preventDefault();dz.classList.add('over')});
+  dz.addEventListener('dragleave',()=>dz.classList.remove('over'));
+  dz.addEventListener('drop',e=>{
+    e.preventDefault();dz.classList.remove('over');
+    const f=e.dataTransfer.files[0];
+    if(f){const dt=new DataTransfer();dt.items.add(f);document.getElementById('csv-in').files=dt.files;previewCSV({files:[f]},mod)}
+  });
+}
+
+function previewCSV(input,mod){
+  const file=input.files?.[0]||input;
+  if(!file)return;
+  const reader=new FileReader();
+  reader.onload=e=>{
+    const text=e.target.result;
+    const rows=parseCSV(text);
+    const pv=document.getElementById('csv-preview');
+    pv.innerHTML=`<div style="margin-top:.6rem;padding:.7rem;background:var(--bg3);border-radius:8px;font-size:.8rem">
+      <strong>📄 ${file.name}</strong><br>
+      <span style="color:var(--text2)">${rows.length} filas · ${(file.size/1024).toFixed(1)} KB</span>
+    </div>`;
+    document.getElementById('btn-imp').disabled=false;
+    document.getElementById('dz').style.borderColor='var(--success)';
+    // guardar parsed en memoria temporal
+    window._csvRows=rows;
+  };
+  // intentar UTF-8 primero, luego latin-1
+  reader.readAsText(file,'UTF-8');
+}
+
+async function doImport(mod){
+  const rows=window._csvRows;
+  if(!rows||!rows.length){toast('Sin datos','err');return}
+  const repl=document.getElementById('replace-chk').checked;
+  const btn=document.getElementById('btn-imp');
+  btn.disabled=true;btn.textContent='Importando...';
+
+  try{
+    if(repl)await clearStore(mod);
+    for(const r of rows){
+      const data={};
+      MODS[mod].campos.filter(f=>f.k!=='id').forEach(f=>{
+        data[f.k]=r[f.k]??r[f.lb.toLowerCase()]??'';
+      });
+      if(data.cantidad!==undefined&&data.precio_unitario!==undefined&&!data.total){
+        const t=parseFloat(data.cantidad)*parseFloat(data.precio_unitario);
+        if(!isNaN(t))data.total=t.toFixed(2);
+      }
+      await putRecord(mod,data);
+    }
+    toast(`✅ ${rows.length} registros importados`,'ok');
+    closeModal();
+    renderMod(mod);
+  }catch(e){
+    toast('Error: '+e.message,'err');
+    btn.disabled=false;btn.textContent='📥 Importar';
+  }
+}
+
+// ══════════════════════════════════════════════════════
+//  NAVEGACIÓN
+// ══════════════════════════════════════════════════════
+function switchTab(tab){
+  currentTab=tab;searchQ='';
+  document.querySelectorAll('.tab').forEach(el=>el.classList.toggle('active',el.dataset.tab===tab));
+  if(tab==='dashboard')renderDash();
+  else renderMod(tab);
+}
+document.querySelectorAll('.tab').forEach(el=>el.addEventListener('click',()=>switchTab(el.dataset.tab)));
+
+// ══════════════════════════════════════════════════════
+//  SERVICE WORKER
+// ══════════════════════════════════════════════════════
+if('serviceWorker' in navigator){
+  navigator.serviceWorker.register('sw.js').catch(()=>{});
+}
+
+// ══════════════════════════════════════════════════════
+//  INICIO
+// ══════════════════════════════════════════════════════
+openDB().then(()=>{
+  renderDash();
+}).catch(e=>{
+  document.getElementById('main').innerHTML=
+    `<div class="empty"><div class="ico">❌</div><p>Error al abrir base de datos: ${e}</p></div>`;
+});
+</script>
+</body>
+</html>
